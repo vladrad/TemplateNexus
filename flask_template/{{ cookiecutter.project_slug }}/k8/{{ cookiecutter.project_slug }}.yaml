@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ cookiecutter.project_slug }}
+  namespace: {{ cookiecutter.kubernetes_namespace }}
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: {{ cookiecutter.project_slug }}
+  template:
+    metadata:
+      labels:
+        app: {{ cookiecutter.project_slug }}
+    spec:
+      containers:
+      - name: app
+        image: "" #TODO
+        imagePullPolicy: Always  # Ensure the image is always pulled
+        ports:
+        - name: app
+          containerPort: 80  # Update to the correct port
+        resources:
+          requests:
+            memory: "500m"
+            cpu: "500m"
+          limits:
+            memory: "500m"
+            cpu: "500m"
+        # extract secrets 
+        # env:
+        # - name: MONGODB_ROOT_USERNAME
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: mongodb-secret
+        #       key: MONGODB_ROOT_USERNAME
+        # - name: MONGODB_ROOT_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: mongodb-secret
+        #       key: MONGODB_ROOT_PASSWORD
+        # - name: POSTGRES_USER
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: postgres-secret
+        #       key: POSTGRES_USER
+        # - name: POSTGRES_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: postgres-secret
+        #       key: POSTGRES_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ cookiecutter.project_slug }}
+  namespace: {{ cookiecutter.kubernetes_namespace }}
+spec:
+  selector:
+    app: {{ cookiecutter.project_slug }}
+  ports:
+    - name: app  # Add a name for the second port
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP

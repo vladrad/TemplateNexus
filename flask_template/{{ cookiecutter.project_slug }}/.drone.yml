@@ -1,0 +1,94 @@
+---
+kind: pipeline
+type: kubernetes
+name: default
+
+parameters:
+  targeted_build:
+    type: string
+    description: "targeted build"
+    default: "build"
+  name:
+    type: string
+    description: "name"
+    default: "{{ cookiecutter.project_slug }}"
+
+steps:
+- name: {{ cookiecutter.project_slug }}-build
+  image: docker:dind
+  volumes:
+  - name: dockersock
+    path: /var/run
+  commands:
+  - |
+    if [ -z "$targeted_build" ] || [ "$targeted_build" = "build" ]; then
+    sleep 5 # give docker enough time to start
+    docker ps -a
+    cd /drone/src/
+    mkdir -p ~/.docker
+    cp /drone/src/daemon.json ~/.docker/daemon.json
+    mkdir -p /etc/docker
+    cp /drone/src/daemon.json /etc/docker/daemon.json
+    docker build -t {{ cookiecutter.project_slug }}:latest .
+
+- name: generate-secrets
+  image: python:3.11.9-slim
+  environment:
+    GH_TOKEN:
+      from_secret: GH_TOKEN
+    SECRET_VALUE:
+      from_secret: SECRET_VALUE
+    KUBECONFIG_FILE:
+      from_secret: KUBECONFIG_FILE
+  commands:
+  - |
+    if [ "$targeted_build" != "generate-secrets" ]; then echo "Skipping generate-secrets step as targeted_build=$targeted_build"; exit 0; fi
+    # Install required tools
+    apt-get update && apt-get install -y git curl
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    curl -L https://github.com/cli/cli/releases/download/v2.45.0/gh_2.45.0_linux_amd64.tar.gz -o gh.tar.gz
+    tar xvf gh.tar.gz
+    mv gh_2.45.0_linux_amd64/bin/gh /usr/local/bin/
+    
+    # Create secrets directory and generate secret.json
+    mkdir -p secrets
+    cat > secrets/$name.json << EOF
+    {
+      "name": "$name",
+      "namespace": "{{ cookiecutter.kubernetes_namespace }}"
+    }
+    EOF
+    
+    # Configure git and push changes
+    gh auth setup-git
+    git add secrets/$name.json
+    git commit -m "Add secret configuration for $name"
+    git push origin main
+
+    mkdir -p /root/.kube
+    echo "$KUBECONFIG_FILE" > /root/.kube/config
+    chmod 600 /root/.kube/config
+    kubectl get nodes  # Test the connection
+    
+    # Apply secret to Kubernetes
+    kubectl create secret generic $name \
+      --from-literal=secret=$SECRET_VALUE \
+      --namespace={{ cookiecutter.kubernetes_namespace }} \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+services:
+- name: docker
+  image: docker:dind
+  command:
+    [
+      '--insecure-registry=192.168.4.150:32000',
+    ]
+  privileged: true
+  volumes:
+  - name: dockersock
+    path: /var/run
+
+volumes:
+- name: dockersock
+  temp: {}

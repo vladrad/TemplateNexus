@@ -1,0 +1,65 @@
+---
+kind: pipeline
+type: kubernetes
+name: default
+
+parameters:
+  SERVICE:
+    type: string
+    description: "Service name"
+    default: "myservice"
+  NAMESPACE:
+    type: string
+    description: "Kubernetes namespace"
+    default: "default"
+
+steps:
+  - name: create-github-repo
+    image: alpine/git
+    environment:
+      GH_TOKEN:
+        from_secret: GH_TOKEN
+    commands:
+      - apk add --no-cache curl
+      - curl -L https://github.com/cli/cli/releases/download/v2.45.0/gh_2.45.0_linux_amd64.tar.gz -o gh.tar.gz
+      - tar xvf gh.tar.gz
+      - mv gh_2.45.0_linux_amd64/bin/gh /usr/local/bin/
+      - gh repo create jvs-$SERVICE --private --confirm
+
+  - name: setup-project
+    image: python:3.11.9-slim
+    environment:
+      GH_TOKEN:
+        from_secret: GH_TOKEN
+    commands:
+      - apt-get update && apt-get install -y git curl
+      - curl -L https://github.com/cli/cli/releases/download/v2.45.0/gh_2.45.0_linux_amd64.tar.gz -o gh.tar.gz
+      - tar xvf gh.tar.gz
+      - mv gh_2.45.0_linux_amd64/bin/gh /usr/local/bin/
+      - gh repo clone ${DRONE_REPO_NAMESPACE}/jvs-${SERVICE}
+      - pip install cookiecutter
+      - cookiecutter flask_template --no-input project_slug=${SERVICE} kubernetes_namespace=${NAMESPACE}
+      - cp -r ${SERVICE}/* jvs-${SERVICE}/
+      - cp -r ${SERVICE}/.drone.yml jvs-${SERVICE}/
+      - cp -r ${SERVICE}/.gitignore jvs-${SERVICE}/
+      - cd jvs-${SERVICE}
+      - gh auth setup-git
+      - git add -A
+      - git commit -m "Initial commit from cookiecutter template"
+      - git push origin main
+
+services:
+- name: docker
+  image: docker:dind
+  command:
+    [
+      '--insecure-registry=192.168.4.150:32000',
+    ]
+  privileged: true
+  volumes:
+  - name: dockersock
+    path: /var/run
+
+volumes:
+- name: dockersock
+  temp: {}

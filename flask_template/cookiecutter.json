@@ -1,0 +1,4 @@
+{
+    "project_slug": "my-flask-app",
+    "kubernetes_namespace": "my-namespace"
+}
